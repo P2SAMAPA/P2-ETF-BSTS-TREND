@@ -4,7 +4,13 @@ Bayesian Structural Time Series (BSTS) model using pybuc.
 
 import numpy as np
 import pandas as pd
-from pybuc import buc
+
+try:
+    from pybuc import buc
+    PYBUC_AVAILABLE = True
+except ImportError:
+    PYBUC_AVAILABLE = False
+    print("Warning: pybuc not installed. Using fallback simple forecast.")
 
 class BSTSPredictor:
     """
@@ -15,13 +21,12 @@ class BSTSPredictor:
         self.mcmc_samples = mcmc_samples
         self.mcmc_burn = mcmc_burn
         self.seed = seed
-        # Use numpy random seed for reproducibility (pybuc uses internal seeding)
         np.random.seed(seed)
         
     def fit_predict(self, returns: pd.Series, predictors: pd.DataFrame) -> dict:
         """
         Fit BSTS model on historical returns and predictors, then forecast next day.
-        Returns dictionary with forecast mean, lower/upper bounds, and model summary.
+        Returns dictionary with forecast mean, lower/upper bounds.
         """
         # Align predictors with returns index
         aligned_predictors = predictors.reindex(returns.index).ffill().dropna()
@@ -38,16 +43,26 @@ class BSTSPredictor:
                 'error': 'Insufficient data'
             }
         
+        if not PYBUC_AVAILABLE:
+            # Simple fallback: mean of recent returns
+            recent_mean = np.mean(y[-21:])
+            recent_std = np.std(y[-21:])
+            return {
+                'forecast_mean': recent_mean,
+                'forecast_lower': recent_mean - 1.96 * recent_std,
+                'forecast_upper': recent_mean + 1.96 * recent_std,
+                'error': 'pybuc not available, using naive forecast'
+            }
+        
         try:
             # Build BSTS model with level, trend, and regression component
             model = buc.BayesianUnobservedComponents(
                 response=y,
                 level=True,
                 stochastic_level=True,
-                slope=True,
-                stochastic_slope=True,
+                trend=True,                 # Correct parameter for slope/trend
+                stochastic_trend=True,       # Correct parameter for stochastic trend
                 predictors=X,
-                # Use default priors (inverse-Gamma for variances, Gaussian for coefficients)
             )
             
             # Sample from posterior
@@ -59,20 +74,19 @@ class BSTSPredictor:
             forecast_lower = np.percentile(forecast_samples, 2.5)
             forecast_upper = np.percentile(forecast_samples, 97.5)
             
-            # Extract model summary (optional)
-            summary = model.summary(burn=self.mcmc_burn)
-            
             return {
                 'forecast_mean': forecast_mean,
                 'forecast_lower': forecast_lower,
                 'forecast_upper': forecast_upper,
-                'model_summary': summary
             }
         except Exception as e:
             print(f"BSTS model fitting failed: {e}")
+            # Fallback to simple mean forecast
+            recent_mean = np.mean(y[-21:])
+            recent_std = np.std(y[-21:])
             return {
-                'forecast_mean': np.nan,
-                'forecast_lower': np.nan,
-                'forecast_upper': np.nan,
+                'forecast_mean': recent_mean,
+                'forecast_lower': recent_mean - 1.96 * recent_std,
+                'forecast_upper': recent_mean + 1.96 * recent_std,
                 'error': str(e)
             }
