@@ -1,6 +1,7 @@
 """
 Streamlit Dashboard for BSTS Trend Engine.
 Displays Daily Active Trading and Shrinking Windows forecasts.
+Includes macro importance for top picks.
 """
 
 import streamlit as st
@@ -99,11 +100,10 @@ if data is None:
     st.warning("No data available. Please run the daily pipeline first.")
     st.stop()
 
-# Detect data format: old (flat) or new (daily_active + shrinking_windows)
+# Detect format
 is_new_format = 'daily_active' in data
 
 if not is_new_format:
-    # Old format: universes and top_picks at root
     st.info("Displaying forecasts from the latest run (legacy format). Shrinking Windows will appear after the next run.")
     daily_data = {
         'universes': data.get('universes', {}),
@@ -144,6 +144,31 @@ with main_tab1:
                         pick.get('forecast_lower', 0),
                         pick.get('forecast_upper', 0)
                     )
+                    
+                    # --- Macro Importance for Top Pick ---
+                    top_ticker = pick.get('ticker')
+                    if top_ticker and top_ticker in universe_dict:
+                        macro_imp = universe_dict[top_ticker].get('macro_importance')
+                        if macro_imp:
+                            with st.expander(f"🔍 Macro Drivers for {top_ticker}", expanded=True):
+                                imp_df = pd.DataFrame(macro_imp)
+                                fig_imp = go.Figure(go.Bar(
+                                    x=imp_df['importance'],
+                                    y=imp_df['feature'],
+                                    orientation='h',
+                                    marker_color='#667eea',
+                                    text=imp_df['coefficient'].round(4),
+                                    textposition='outside'
+                                ))
+                                fig_imp.update_layout(
+                                    title="Absolute Coefficient Importance (sign shown as text)",
+                                    xaxis_title="|Coefficient|",
+                                    yaxis_title="Macro Variable",
+                                    height=300
+                                )
+                                st.plotly_chart(fig_imp, use_container_width=True)
+                                st.caption("Higher bars indicate stronger influence on forecast. The number next to each bar is the actual coefficient (positive = positive relationship).")
+                
                 st.markdown("### 📋 All Forecasts")
                 display_forecast_table(universe_dict)
                 
