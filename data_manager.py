@@ -69,8 +69,4 @@ def prepare_macro_features(df: pd.DataFrame) -> pd.DataFrame:
     
     # Use raw values (or optionally compute changes)
     # For BSTS regression, we'll use the raw macro levels
-    return macro_df.fillna(method='ffill').dropna()
-
-def get_universe_tickers(universe_name: str) -> list:
-    """Returns list of tickers for a given universe."""
-    return config.UNIVERSES.get(universe_name, [])
+    return macro_df.ffill().dropna()  # Fixed FutureWarning
