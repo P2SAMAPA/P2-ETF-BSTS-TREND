@@ -41,6 +41,12 @@ def run_bsts_forecast():
                 continue
             ticker_returns = ticker_returns.iloc[-config.LOOKBACK_WINDOW:]
             forecast = predictor.fit_predict(ticker_returns, macro_features)
+            
+            # Diagnostic for first ticker
+            if ticker == tickers[0]:
+                imp_sample = forecast.get('macro_importance')
+                print(f"    Macro importance sample: {imp_sample[:2] if imp_sample else 'empty'}")
+            
             universe_results[ticker] = {
                 'ticker': ticker,
                 'forecast_mean': forecast.get('forecast_mean'),
