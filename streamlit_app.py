@@ -30,7 +30,6 @@ st.markdown("""
 
 @st.cache_data(ttl=3600)
 def load_latest_results():
-    """Fetch the most recent result file from HF dataset."""
     try:
         api = HfApi(token=config.HF_TOKEN)
         files = api.list_repo_files(repo_id=config.HF_OUTPUT_REPO, repo_type="dataset")
@@ -100,16 +99,33 @@ if data is None:
     st.warning("No data available. Please run the daily pipeline first.")
     st.stop()
 
+# Detect data format: old (flat) or new (daily_active + shrinking_windows)
+is_new_format = 'daily_active' in data
+
+if not is_new_format:
+    # Old format: universes and top_picks at root
+    st.info("Displaying forecasts from the latest run (legacy format). Shrinking Windows will appear after the next run.")
+    daily_data = {
+        'universes': data.get('universes', {}),
+        'top_picks': data.get('top_picks', {})
+    }
+    shrinking_windows = {}
+else:
+    daily_data = data['daily_active']
+    shrinking_windows = data.get('shrinking_windows', {})
+
 # --- Top-Level Tabs ---
-main_tab1, main_tab2 = st.tabs(["📋 Daily Active Trading", "📆 Shrinking Windows"])
+if is_new_format and shrinking_windows:
+    main_tab1, main_tab2 = st.tabs(["📋 Daily Active Trading", "📆 Shrinking Windows"])
+else:
+    main_tab1, main_tab2 = st.tabs(["📋 Daily Active Trading", "📆 Shrinking Windows (No Data Yet)"])
 
 # ------------------------------
 # DAILY ACTIVE TRADING TAB
 # ------------------------------
 with main_tab1:
-    daily_data = data['daily_active']
-    top_picks = daily_data['top_picks']
-    universes_data = daily_data['universes']
+    top_picks = daily_data.get('top_picks', {})
+    universes_data = daily_data.get('universes', {})
     
     subtab_names = ["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"]
     subtab_keys = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
@@ -131,7 +147,6 @@ with main_tab1:
                 st.markdown("### 📋 All Forecasts")
                 display_forecast_table(universe_dict)
                 
-                # Bar chart
                 forecasts = {t: d['forecast_mean'] for t, d in universe_dict.items() if d.get('forecast_mean') is not None}
                 if forecasts:
                     sorted_items = sorted(forecasts.items(), key=lambda x: x[1], reverse=True)
@@ -153,12 +168,10 @@ with main_tab1:
 # SHRINKING WINDOWS TAB
 # ------------------------------
 with main_tab2:
-    shrinking = data.get('shrinking_windows', {})
-    if not shrinking:
-        st.warning("No shrinking windows data available.")
+    if not shrinking_windows:
+        st.warning("No shrinking windows data available yet. The next scheduled run will generate it.")
         st.stop()
     
-    # Subtabs per universe
     st.markdown("### Forecasts from Different Historical Start Dates")
     subtab_names_sw = ["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"]
     subtab_keys_sw = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
@@ -167,9 +180,9 @@ with main_tab2:
     for subtab, universe_key in zip(sw_tabs, subtab_keys_sw):
         with subtab:
             rows = []
-            windows_sorted = sorted(shrinking.keys(), reverse=True)  # newest first
+            windows_sorted = sorted(shrinking_windows.keys(), reverse=True)
             for window_label in windows_sorted:
-                win_data = shrinking[window_label]
+                win_data = shrinking_windows[window_label]
                 top = win_data['top_picks'].get(universe_key, {})
                 if top:
                     rows.append({
@@ -183,7 +196,6 @@ with main_tab2:
                 df_sw = pd.DataFrame(rows)
                 st.dataframe(df_sw, use_container_width=True, hide_index=True)
                 
-                # Optional: line chart showing forecast trend across windows
                 df_chart = df_sw.copy()
                 df_chart['Forecast_val'] = df_chart['Forecast'].str.rstrip('%').astype(float)
                 fig = go.Figure(go.Scatter(
