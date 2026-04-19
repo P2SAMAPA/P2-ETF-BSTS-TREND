@@ -1,22 +1,19 @@
 """
 Bayesian Structural Time Series (BSTS) model using statsmodels.
+Returns forecasts and macro coefficient importance.
 """
 
 import numpy as np
 import pandas as pd
 import warnings
 from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
 import statsmodels.api as sm
 
 warnings.filterwarnings("ignore")
 
 class BSTSPredictor:
-    """
-    Uses statsmodels UnobservedComponents for BSTS with level and trend.
-    Falls back to linear regression on macro predictors if that fails.
-    """
-    
-    def __init__(self, mcmc_samples: int = 2000, mcmc_burn: int = 500, seed: int = 42):
+    def __init__(self, seed: int = 42):
         self.seed = seed
         np.random.seed(seed)
         
@@ -26,13 +23,13 @@ class BSTSPredictor:
         common_idx = returns.index.intersection(aligned.index)
         y = returns.loc[common_idx].values
         X = aligned.loc[common_idx].values
+        feature_names = aligned.columns.tolist()
         
         if len(y) < 100:
             return self._naive_forecast(y)
         
-        # Try statsmodels UnobservedComponents (BSTS equivalent)
+        # Try statsmodels UnobservedComponents
         try:
-            # Build model with local level + deterministic trend
             model = sm.tsa.UnobservedComponents(
                 y,
                 level='local level',
@@ -47,17 +44,25 @@ class BSTSPredictor:
             pred_lower = ci[0, 0]
             pred_upper = ci[0, 1]
             
+            # Extract coefficients (if exog used)
+            coeffs = None
+            if X.shape[1] > 0 and hasattr(fit, 'params'):
+                # params order: [sigma2.irregular, sigma2.level, sigma2.trend, exog_coeffs...]
+                exog_start = 3  # after variances
+                if len(fit.params) >= exog_start + X.shape[1]:
+                    coeffs = fit.params[exog_start:exog_start + X.shape[1]]
+            
             return {
                 'forecast_mean': pred_mean,
                 'forecast_lower': pred_lower,
                 'forecast_upper': pred_upper,
+                'macro_importance': self._compute_importance(coeffs, feature_names) if coeffs is not None else None
             }
         except Exception as e:
             print(f"Statsmodels BSTS failed: {e}. Using regression fallback.")
-            return self._regression_forecast(y, X)
+            return self._regression_forecast(y, X, feature_names)
     
-    def _regression_forecast(self, y, X):
-        """Use last 60 days to fit linear model on macro predictors."""
+    def _regression_forecast(self, y, X, feature_names):
         window = min(60, len(y) - 1)
         if window < 20 or X.shape[1] == 0:
             return self._naive_forecast(y)
@@ -71,14 +76,30 @@ class BSTSPredictor:
         pred = model.predict(X_next)[0]
         resid_std = np.std(y_train - model.predict(X_train))
         
+        coeffs = model.coef_
+        importance = self._compute_importance(coeffs, feature_names)
+        
         return {
             'forecast_mean': pred,
             'forecast_lower': pred - 1.96 * resid_std,
             'forecast_upper': pred + 1.96 * resid_std,
+            'macro_importance': importance
         }
     
+    def _compute_importance(self, coefficients, feature_names):
+        """Convert raw coefficients to absolute importance scores (sorted)."""
+        if coefficients is None or len(coefficients) != len(feature_names):
+            return None
+        # Absolute value of coefficients as importance
+        imp = np.abs(coefficients)
+        # Sort descending
+        sorted_idx = np.argsort(imp)[::-1]
+        return [
+            {'feature': feature_names[i], 'coefficient': float(coefficients[i]), 'importance': float(imp[i])}
+            for i in sorted_idx if imp[i] > 1e-6
+        ]
+    
     def _naive_forecast(self, y):
-        """21-day mean fallback."""
         recent = y[-21:] if len(y) >= 21 else y
         mean = np.mean(recent)
         std = np.std(recent)
@@ -86,4 +107,5 @@ class BSTSPredictor:
             'forecast_mean': mean,
             'forecast_lower': mean - 1.96 * std,
             'forecast_upper': mean + 1.96 * std,
+            'macro_importance': None
         }
