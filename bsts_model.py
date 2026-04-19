@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 import warnings
 from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import StandardScaler
 import statsmodels.api as sm
 
 warnings.filterwarnings("ignore")
@@ -25,38 +24,43 @@ class BSTSPredictor:
         X = aligned.loc[common_idx].values
         feature_names = aligned.columns.tolist()
         
-        if len(y) < 100:
-            return self._naive_forecast(y)
+        if len(y) < 100 or X.shape[1] == 0:
+            return self._naive_forecast(y, feature_names)
         
-        # Try statsmodels UnobservedComponents
+        # Try statsmodels
         try:
             model = sm.tsa.UnobservedComponents(
                 y,
                 level='local level',
                 trend=True,
-                exog=X if X.shape[1] > 0 else None,
+                exog=X,
                 autoregressive=0
             )
             fit = model.fit(disp=False, maxiter=100)
-            forecast = fit.get_forecast(steps=1, exog=X[-1:].reshape(1, -1) if X.shape[1] > 0 else None)
+            forecast = fit.get_forecast(steps=1, exog=X[-1:].reshape(1, -1))
             pred_mean = forecast.predicted_mean[0]
             ci = forecast.conf_int(alpha=0.05)
             pred_lower = ci[0, 0]
             pred_upper = ci[0, 1]
             
-            # Extract coefficients (if exog used)
+            # Extract exog coefficients
             coeffs = None
-            if X.shape[1] > 0 and hasattr(fit, 'params'):
+            if hasattr(fit, 'params'):
                 # params order: [sigma2.irregular, sigma2.level, sigma2.trend, exog_coeffs...]
-                exog_start = 3  # after variances
-                if len(fit.params) >= exog_start + X.shape[1]:
-                    coeffs = fit.params[exog_start:exog_start + X.shape[1]]
+                n_exog = X.shape[1]
+                if len(fit.params) >= 3 + n_exog:
+                    coeffs = fit.params[3:3+n_exog]
             
+            # If statsmodels failed to give coeffs, use regression fallback
+            if coeffs is None:
+                return self._regression_forecast(y, X, feature_names)
+            
+            importance = self._compute_importance(coeffs, feature_names)
             return {
                 'forecast_mean': pred_mean,
                 'forecast_lower': pred_lower,
                 'forecast_upper': pred_upper,
-                'macro_importance': self._compute_importance(coeffs, feature_names) if coeffs is not None else None
+                'macro_importance': importance
             }
         except Exception as e:
             print(f"Statsmodels BSTS failed: {e}. Using regression fallback.")
@@ -64,8 +68,8 @@ class BSTSPredictor:
     
     def _regression_forecast(self, y, X, feature_names):
         window = min(60, len(y) - 1)
-        if window < 20 or X.shape[1] == 0:
-            return self._naive_forecast(y)
+        if window < 20:
+            return self._naive_forecast(y, feature_names)
         
         y_train = y[-window:]
         X_train = X[-window:]
@@ -89,17 +93,20 @@ class BSTSPredictor:
     def _compute_importance(self, coefficients, feature_names):
         """Convert raw coefficients to absolute importance scores (sorted)."""
         if coefficients is None or len(coefficients) != len(feature_names):
-            return None
-        # Absolute value of coefficients as importance
+            return []
         imp = np.abs(coefficients)
-        # Sort descending
         sorted_idx = np.argsort(imp)[::-1]
-        return [
-            {'feature': feature_names[i], 'coefficient': float(coefficients[i]), 'importance': float(imp[i])}
-            for i in sorted_idx if imp[i] > 1e-6
-        ]
+        result = []
+        for i in sorted_idx:
+            if imp[i] > 1e-8:  # ignore near-zero
+                result.append({
+                    'feature': feature_names[i],
+                    'coefficient': float(coefficients[i]),
+                    'importance': float(imp[i])
+                })
+        return result
     
-    def _naive_forecast(self, y):
+    def _naive_forecast(self, y, feature_names):
         recent = y[-21:] if len(y) >= 21 else y
         mean = np.mean(recent)
         std = np.std(recent)
@@ -107,5 +114,5 @@ class BSTSPredictor:
             'forecast_mean': mean,
             'forecast_lower': mean - 1.96 * std,
             'forecast_upper': mean + 1.96 * std,
-            'macro_importance': None
+            'macro_importance': []  # empty list, not None
         }
