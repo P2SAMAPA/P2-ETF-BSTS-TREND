@@ -149,8 +149,8 @@ with main_tab1:
                     top_ticker = pick.get('ticker')
                     if top_ticker and top_ticker in universe_dict:
                         macro_imp = universe_dict[top_ticker].get('macro_importance')
-                        if macro_imp:
-                            with st.expander(f"🔍 Macro Drivers for {top_ticker}", expanded=True):
+                        with st.expander(f"🔍 Macro Drivers for {top_ticker}", expanded=True):
+                            if macro_imp and len(macro_imp) > 0:
                                 imp_df = pd.DataFrame(macro_imp)
                                 fig_imp = go.Figure(go.Bar(
                                     x=imp_df['importance'],
@@ -167,7 +167,9 @@ with main_tab1:
                                     height=300
                                 )
                                 st.plotly_chart(fig_imp, use_container_width=True)
-                                st.caption("Higher bars indicate stronger influence on forecast. The number next to each bar is the actual coefficient (positive = positive relationship).")
+                                st.caption("Higher bars indicate stronger influence. Positive coefficient = positive relationship.")
+                            else:
+                                st.info("No macro importance data available for this ETF (model used naive fallback).")
                 
                 st.markdown("### 📋 All Forecasts")
                 display_forecast_table(universe_dict)
