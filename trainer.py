@@ -42,11 +42,6 @@ def run_bsts_forecast():
             ticker_returns = ticker_returns.iloc[-config.LOOKBACK_WINDOW:]
             forecast = predictor.fit_predict(ticker_returns, macro_features)
             
-            # Diagnostic for first ticker
-            if ticker == tickers[0]:
-                imp_sample = forecast.get('macro_importance')
-                print(f"    Macro importance sample: {imp_sample[:2] if imp_sample else 'empty'}")
-            
             universe_results[ticker] = {
                 'ticker': ticker,
                 'forecast_mean': forecast.get('forecast_mean'),
@@ -72,14 +67,21 @@ def run_bsts_forecast():
         start_date = pd.Timestamp(f"{start_year}-01-01")
         window_label = f"{start_year}-{config.TODAY[:4]}"
         print(f"\n--- Shrinking Window: {window_label} ---")
+        print(f"    Start date: {start_date.date()}")
         
         mask = df_master['Date'] >= start_date
         df_window = df_master[mask].copy()
+        print(f"    Rows in df_window: {len(df_window)}")
+        
         if len(df_window) < 252:
+            print(f"    Skipping window (less than 1 year of data)")
             continue
         
         macro_win = macro_features.loc[start_date:].dropna()
+        print(f"    Rows in macro_win: {len(macro_win)}")
+        
         window_results = {}
+        sample_ticker = config.ALL_TICKERS[0]
         
         for universe_name, tickers in config.UNIVERSES.items():
             universe_returns = data_manager.compute_log_returns(df_window, tickers)
@@ -93,6 +95,9 @@ def run_bsts_forecast():
                     'forecast_lower': forecast.get('forecast_lower'),
                     'forecast_upper': forecast.get('forecast_upper'),
                 }
+                # Log first ticker's data length
+                if ticker == sample_ticker:
+                    print(f"    Sample {ticker}: {len(ticker_ret)} return observations")
         
         window_top = {}
         for universe_name, ticker_dict in window_results.items():
@@ -111,6 +116,8 @@ def run_bsts_forecast():
             'forecasts': window_results,
             'top_picks': window_top
         }
+        print(f"    Top pick for EQUITY_SECTORS: {window_top.get('EQUITY_SECTORS', {}).get('ticker', 'N/A')}")
+        print(f"    Top pick for FI_COMMODITIES: {window_top.get('FI_COMMODITIES', {}).get('ticker', 'N/A')}")
     
     # Build output payload
     output_payload = {
