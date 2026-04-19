@@ -1,6 +1,7 @@
 """
 Main training script for BSTS Trend engine.
-Computes both daily (rolling 504d) and shrinking-window forecasts.
+Computes daily (rolling 504d) and shrinking-window forecasts.
+Stores macro coefficient importance for each ETF.
 """
 
 import pandas as pd
@@ -45,6 +46,7 @@ def run_bsts_forecast():
                 'forecast_mean': forecast.get('forecast_mean'),
                 'forecast_lower': forecast.get('forecast_lower'),
                 'forecast_upper': forecast.get('forecast_upper'),
+                'macro_importance': forecast.get('macro_importance')
             }
         
         valid = {t: d for t, d in universe_results.items() if d['forecast_mean'] is not None and not np.isnan(d['forecast_mean'])}
@@ -65,10 +67,9 @@ def run_bsts_forecast():
         window_label = f"{start_year}-{config.TODAY[:4]}"
         print(f"\n--- Shrinking Window: {window_label} ---")
         
-        # Filter data from start_date onward
         mask = df_master['Date'] >= start_date
         df_window = df_master[mask].copy()
-        if len(df_window) < 252:  # need at least 1 year
+        if len(df_window) < 252:
             continue
         
         macro_win = macro_features.loc[start_date:].dropna()
@@ -87,7 +88,6 @@ def run_bsts_forecast():
                     'forecast_upper': forecast.get('forecast_upper'),
                 }
         
-        # Determine top pick per universe for this window
         window_top = {}
         for universe_name, ticker_dict in window_results.items():
             valid = {t: d for t, d in ticker_dict.items() if d['forecast_mean'] is not None and not np.isnan(d['forecast_mean'])}
