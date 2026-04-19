@@ -15,7 +15,8 @@ class BSTSPredictor:
         self.mcmc_samples = mcmc_samples
         self.mcmc_burn = mcmc_burn
         self.seed = seed
-        buc.set_seed(seed)
+        # Use numpy random seed for reproducibility (pybuc uses internal seeding)
+        np.random.seed(seed)
         
     def fit_predict(self, returns: pd.Series, predictors: pd.DataFrame) -> dict:
         """
@@ -23,7 +24,7 @@ class BSTSPredictor:
         Returns dictionary with forecast mean, lower/upper bounds, and model summary.
         """
         # Align predictors with returns index
-        aligned_predictors = predictors.reindex(returns.index).fillna(method='ffill').dropna()
+        aligned_predictors = predictors.reindex(returns.index).ffill().dropna()
         common_idx = returns.index.intersection(aligned_predictors.index)
         
         y = returns.loc[common_idx].values
