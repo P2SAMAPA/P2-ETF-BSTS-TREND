@@ -30,11 +30,11 @@ UNIVERSES = {
 MACRO_COLS = ["VIX", "DXY", "T10Y2Y", "TBILL_3M", "IG_SPREAD", "HY_SPREAD"]
 
 # --- BSTS Parameters ---
-LOOKBACK_WINDOW = 504  # 2 years of daily data for model fitting (~504 trading days)
-FORECAST_HORIZON = 1   # Predict next day's return
-MCMC_SAMPLES = 2000    # Number of Gibbs sampling draws
-MCMC_BURN = 500        # Burn-in period for MCMC
-RANDOM_SEED = 42       # Reproducibility
+LOOKBACK_WINDOW = 504        # For daily active trading (2 years)
+SHRINKING_WINDOW_START_YEARS = list(range(2008, 2025))  # 2008..2024
+
+FORECAST_HORIZON = 1
+RANDOM_SEED = 42
 
 # --- Date Handling ---
 TODAY = datetime.now().strftime("%Y-%m-%d")
