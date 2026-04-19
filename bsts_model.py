@@ -44,7 +44,6 @@ class BSTSPredictor:
             }
         
         if not PYBUC_AVAILABLE:
-            # Simple fallback: mean of recent returns
             recent_mean = np.mean(y[-21:])
             recent_std = np.std(y[-21:])
             return {
@@ -55,21 +54,28 @@ class BSTSPredictor:
             }
         
         try:
-            # Build BSTS model with level, trend, and regression component
+            # Build BSTS model
             model = buc.BayesianUnobservedComponents(
                 response=y,
                 level=True,
                 stochastic_level=True,
-                trend=True,                 # Correct parameter for slope/trend
-                stochastic_trend=True,       # Correct parameter for stochastic trend
+                trend=True,
+                stochastic_trend=True,
                 predictors=X,
             )
             
             # Sample from posterior
             model.sample(self.mcmc_samples)
             
-            # Forecast next step
-            forecast_samples = model.forecast(steps=1, burn=self.mcmc_burn)
+            # Forecast next step — use h=1 for horizon
+            forecast_result = model.forecast(h=1, burn=self.mcmc_burn)
+            
+            # forecast_result may be a tuple (mean, intervals) or array of draws
+            if isinstance(forecast_result, tuple):
+                forecast_samples = forecast_result[0]  # Usually the draws
+            else:
+                forecast_samples = forecast_result
+                
             forecast_mean = np.mean(forecast_samples)
             forecast_lower = np.percentile(forecast_samples, 2.5)
             forecast_upper = np.percentile(forecast_samples, 97.5)
@@ -81,7 +87,6 @@ class BSTSPredictor:
             }
         except Exception as e:
             print(f"BSTS model fitting failed: {e}")
-            # Fallback to simple mean forecast
             recent_mean = np.mean(y[-21:])
             recent_std = np.std(y[-21:])
             return {
