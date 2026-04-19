@@ -166,7 +166,7 @@ with main_tab1:
                                     yaxis_title="Macro Variable",
                                     height=300
                                 )
-                                st.plotly_chart(fig_imp, use_container_width=True)
+                                st.plotly_chart(fig_imp, use_container_width=True, key=f"macro_imp_{key}_{top_ticker}")
                                 st.caption("Higher bars indicate stronger influence. Positive coefficient = positive relationship.")
                             else:
                                 st.info("No macro importance data available for this ETF (model used naive fallback).")
@@ -187,7 +187,7 @@ with main_tab1:
                         yaxis_title="Forecast Return",
                         height=400
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, use_container_width=True, key=f"forecast_bar_{key}")
             else:
                 st.info(f"No data for {key} universe.")
 
@@ -236,6 +236,6 @@ with main_tab2:
                     yaxis_title="Forecast Return (%)",
                     height=400
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"sw_chart_{universe_key}")
             else:
                 st.info(f"No shrinking window data for {universe_key}.")
