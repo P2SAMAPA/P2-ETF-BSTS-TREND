@@ -1,13 +1,11 @@
 """
 Main training script for BSTS Trend engine.
 Computes daily (rolling 504d) and shrinking-window forecasts.
-Stores macro coefficient importance for each ETF.
 """
 
 import pandas as pd
 import numpy as np
 import json
-from datetime import datetime
 
 import config
 import data_manager
@@ -15,11 +13,8 @@ from bsts_model import BSTSPredictor
 import push_results
 
 def run_bsts_forecast():
-    """Orchestrates the full BSTS forecasting pipeline."""
-    
     print(f"=== P2-ETF-BSTS-TREND Run: {config.TODAY} ===")
     
-    # Load and prepare data
     df_master = data_manager.load_master_data()
     macro_features = data_manager.prepare_macro_features(df_master)
     
@@ -28,7 +23,7 @@ def run_bsts_forecast():
     all_results = {}
     top_picks = {}
     
-    # 1. Daily Active Trading (rolling 504d window)
+    # 1. Daily Active Trading
     for universe_name, tickers in config.UNIVERSES.items():
         print(f"\n--- Daily Active: {universe_name} ---")
         universe_results = {}
@@ -61,9 +56,23 @@ def run_bsts_forecast():
             }
         all_results[universe_name] = universe_results
     
-    # 2. Shrinking Windows (full history down to 2 years)
+    # 2. Shrinking Windows
     shrinking_results = {}
-    for start_year in config.SHRINKING_WINDOW_START_YEARS:
+    
+    # FIX: Validate dataset date range
+    min_date = df_master['Date'].min()
+    max_date = df_master['Date'].max()
+    print(f"\nDataset date range: {min_date.date()} to {max_date.date()}")
+    print(f"Configured start years: {config.SHRINKING_WINDOW_START_YEARS}")
+    
+    # FIX: Only use start years that actually produce different windows
+    valid_start_years = [
+        y for y in config.SHRINKING_WINDOW_START_YEARS 
+        if pd.Timestamp(f"{y}-01-01") < max_date
+    ]
+    print(f"Valid start years: {valid_start_years}")
+    
+    for start_year in valid_start_years:
         start_date = pd.Timestamp(f"{start_year}-01-01")
         window_label = f"{start_year}-{config.TODAY[:4]}"
         print(f"\n--- Shrinking Window: {window_label} ---")
@@ -72,13 +81,16 @@ def run_bsts_forecast():
         mask = df_master['Date'] >= start_date
         df_window = df_master[mask].copy()
         print(f"    Rows in df_window: {len(df_window)}")
+        print(f"    df_window date range: {df_window['Date'].min().date()} to {df_window['Date'].max().date()}")
         
         if len(df_window) < 252:
             print(f"    Skipping window (less than 1 year of data)")
             continue
         
         macro_win = macro_features.loc[start_date:].dropna()
+        macro_win = macro_win.sort_index()  # FIX: Ensure sorted for reindex
         print(f"    Rows in macro_win: {len(macro_win)}")
+        print(f"    macro_win date range: {macro_win.index.min().date()} to {macro_win.index.max().date()}")
         
         window_results = {}
         sample_ticker = config.ALL_TICKERS[0]
@@ -95,7 +107,6 @@ def run_bsts_forecast():
                     'forecast_lower': forecast.get('forecast_lower'),
                     'forecast_upper': forecast.get('forecast_upper'),
                 }
-                # Log first ticker's data length
                 if ticker == sample_ticker:
                     print(f"    Sample {ticker}: {len(ticker_ret)} return observations")
         
@@ -116,10 +127,9 @@ def run_bsts_forecast():
             'forecasts': window_results,
             'top_picks': window_top
         }
-        print(f"    Top pick for EQUITY_SECTORS: {window_top.get('EQUITY_SECTORS', {}).get('ticker', 'N/A')}")
-        print(f"    Top pick for FI_COMMODITIES: {window_top.get('FI_COMMODITIES', {}).get('ticker', 'N/A')}")
+        print(f"    Top pick EQUITY: {window_top.get('EQUITY_SECTORS', {}).get('ticker', 'N/A')} @ {window_top.get('EQUITY_SECTORS', {}).get('forecast_mean', 0)*100:.4f}%")
+        print(f"    Top pick FI: {window_top.get('FI_COMMODITIES', {}).get('ticker', 'N/A')} @ {window_top.get('FI_COMMODITIES', {}).get('forecast_mean', 0)*100:.4f}%")
     
-    # Build output payload
     output_payload = {
         "run_date": config.TODAY,
         "config": {
@@ -133,10 +143,8 @@ def run_bsts_forecast():
         "shrinking_windows": shrinking_results
     }
     
-    # Push to Hugging Face
     push_results.push_daily_result(output_payload)
     
-    # Print top picks
     print("\n=== Daily Active Top Picks ===")
     for universe, pick in top_picks.items():
         print(f"{universe}: {pick['ticker']} with forecast return {pick['forecast_mean']*100:.3f}%")
