@@ -5,7 +5,6 @@ Computes daily (rolling 504d) and shrinking-window forecasts.
 
 import pandas as pd
 import numpy as np
-import json
 
 import config
 import data_manager
@@ -23,7 +22,7 @@ def run_bsts_forecast():
     all_results = {}
     top_picks = {}
     
-    # 1. Daily Active Trading
+    # 1. Daily Active Trading — use_full_window=False (60-day regression fallback)
     for universe_name, tickers in config.UNIVERSES.items():
         print(f"\n--- Daily Active: {universe_name} ---")
         universe_results = {}
@@ -35,7 +34,8 @@ def run_bsts_forecast():
             if len(ticker_returns) < config.LOOKBACK_WINDOW:
                 continue
             ticker_returns = ticker_returns.iloc[-config.LOOKBACK_WINDOW:]
-            forecast = predictor.fit_predict(ticker_returns, macro_features)
+            
+            forecast = predictor.fit_predict(ticker_returns, macro_features, use_full_window=False)
             
             universe_results[ticker] = {
                 'ticker': ticker,
@@ -56,16 +56,13 @@ def run_bsts_forecast():
             }
         all_results[universe_name] = universe_results
     
-    # 2. Shrinking Windows
+    # 2. Shrinking Windows — use_full_window=True (full window history)
     shrinking_results = {}
     
-    # FIX: Validate dataset date range
     min_date = df_master['Date'].min()
     max_date = df_master['Date'].max()
     print(f"\nDataset date range: {min_date.date()} to {max_date.date()}")
-    print(f"Configured start years: {config.SHRINKING_WINDOW_START_YEARS}")
     
-    # FIX: Only use start years that actually produce different windows
     valid_start_years = [
         y for y in config.SHRINKING_WINDOW_START_YEARS 
         if pd.Timestamp(f"{y}-01-01") < max_date
@@ -81,16 +78,14 @@ def run_bsts_forecast():
         mask = df_master['Date'] >= start_date
         df_window = df_master[mask].copy()
         print(f"    Rows in df_window: {len(df_window)}")
-        print(f"    df_window date range: {df_window['Date'].min().date()} to {df_window['Date'].max().date()}")
         
         if len(df_window) < 252:
             print(f"    Skipping window (less than 1 year of data)")
             continue
         
         macro_win = macro_features.loc[start_date:].dropna()
-        macro_win = macro_win.sort_index()  # FIX: Ensure sorted for reindex
+        macro_win = macro_win.sort_index()
         print(f"    Rows in macro_win: {len(macro_win)}")
-        print(f"    macro_win date range: {macro_win.index.min().date()} to {macro_win.index.max().date()}")
         
         window_results = {}
         sample_ticker = config.ALL_TICKERS[0]
@@ -101,7 +96,10 @@ def run_bsts_forecast():
                 ticker_ret = universe_returns[universe_returns['ticker'] == ticker].set_index('Date')['log_return']
                 if len(ticker_ret) < 252:
                     continue
-                forecast = predictor.fit_predict(ticker_ret, macro_win)
+                
+                # Shrinking windows: use ALL data for this window
+                forecast = predictor.fit_predict(ticker_ret, macro_win, use_full_window=True)
+                
                 window_results.setdefault(universe_name, {})[ticker] = {
                     'forecast_mean': forecast.get('forecast_mean'),
                     'forecast_lower': forecast.get('forecast_lower'),
