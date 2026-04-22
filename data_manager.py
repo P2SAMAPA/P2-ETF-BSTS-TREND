@@ -25,7 +25,6 @@ def load_master_data() -> pd.DataFrame:
         df = df.rename(columns={'date': 'Date'})
     df['Date'] = pd.to_datetime(df['Date'])
     
-    # FIX: Sort by Date to ensure consistent ordering
     df = df.sort_values('Date').reset_index(drop=True)
     
     return df
@@ -52,6 +51,5 @@ def compute_log_returns(df: pd.DataFrame, tickers: list) -> pd.DataFrame:
 
 def prepare_macro_features(df: pd.DataFrame) -> pd.DataFrame:
     macro_df = df[['Date'] + [c for c in config.MACRO_COLS if c in df.columns]].copy()
-    # FIX: Added .sort_index() to ensure proper .loc[] slicing
     macro_df = macro_df.set_index('Date').sort_index()
     return macro_df.ffill().dropna()
