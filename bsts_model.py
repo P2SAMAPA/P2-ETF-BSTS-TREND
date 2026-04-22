@@ -16,7 +16,16 @@ class BSTSPredictor:
         self.seed = seed
         np.random.seed(seed)
         
-    def fit_predict(self, returns: pd.Series, predictors: pd.DataFrame) -> dict:
+    def fit_predict(self, returns: pd.Series, predictors: pd.DataFrame, use_full_window: bool = False) -> dict:
+        """
+        Fit BSTS model and return forecast.
+        
+        Args:
+            returns: pd.Series of log returns with DatetimeIndex
+            predictors: pd.DataFrame of macro features with DatetimeIndex
+            use_full_window: If True, regression fallback uses ALL data (shrinking windows).
+                           If False, regression fallback uses last 60 days (daily active).
+        """
         # Align data
         aligned = predictors.reindex(returns.index).ffill().dropna()
         common_idx = returns.index.intersection(aligned.index)
@@ -36,7 +45,7 @@ class BSTSPredictor:
                 exog=X,
                 autoregressive=0
             )
-            fit = model.fit(disp=False, maxiter=500)  # Increased from 100
+            fit = model.fit(disp=False, maxiter=500)
             forecast = fit.get_forecast(steps=1, exog=X[-1:].reshape(1, -1))
             pred_mean = forecast.predicted_mean[0]
             ci = forecast.conf_int(alpha=0.05)
@@ -51,7 +60,7 @@ class BSTSPredictor:
                     coeffs = fit.params[3:3+n_exog]
             
             if coeffs is None:
-                return self._regression_forecast(y, X, feature_names)
+                return self._regression_forecast(y, X, feature_names, use_full_window)
             
             importance = self._compute_importance(coeffs, feature_names)
             return {
@@ -62,12 +71,23 @@ class BSTSPredictor:
             }
         except Exception as e:
             print(f"Statsmodels BSTS failed: {e}. Using regression fallback.")
-            return self._regression_forecast(y, X, feature_names)
+            return self._regression_forecast(y, X, feature_names, use_full_window)
     
-    def _regression_forecast(self, y, X, feature_names):
-        # BUG FIX: Use ALL data, not just last 60 days
-        # Original: window = min(60, len(y) - 1)  ← caused identical forecasts
-        window = len(y) - 1
+    def _regression_forecast(self, y, X, feature_names, use_full_window: bool = False):
+        """
+        Fallback linear regression forecast.
+        
+        Args:
+            use_full_window: If True, uses ALL data (shrinking windows).
+                           If False, uses last 60 days (daily active).
+        """
+        if use_full_window:
+            # Shrinking windows: use ALL data for that window
+            window = len(y) - 1
+        else:
+            # Daily active: use last 60 days (recency bias)
+            window = min(60, len(y) - 1)
+            
         if window < 20:
             return self._naive_forecast(y, feature_names)
         
