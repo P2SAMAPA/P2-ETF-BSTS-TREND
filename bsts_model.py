@@ -36,7 +36,7 @@ class BSTSPredictor:
                 exog=X,
                 autoregressive=0
             )
-            fit = model.fit(disp=False, maxiter=100)
+            fit = model.fit(disp=False, maxiter=500)  # Increased from 100
             forecast = fit.get_forecast(steps=1, exog=X[-1:].reshape(1, -1))
             pred_mean = forecast.predicted_mean[0]
             ci = forecast.conf_int(alpha=0.05)
@@ -46,12 +46,10 @@ class BSTSPredictor:
             # Extract exog coefficients
             coeffs = None
             if hasattr(fit, 'params'):
-                # params order: [sigma2.irregular, sigma2.level, sigma2.trend, exog_coeffs...]
                 n_exog = X.shape[1]
                 if len(fit.params) >= 3 + n_exog:
                     coeffs = fit.params[3:3+n_exog]
             
-            # If statsmodels failed to give coeffs, use regression fallback
             if coeffs is None:
                 return self._regression_forecast(y, X, feature_names)
             
@@ -67,7 +65,9 @@ class BSTSPredictor:
             return self._regression_forecast(y, X, feature_names)
     
     def _regression_forecast(self, y, X, feature_names):
-        window = min(60, len(y) - 1)
+        # BUG FIX: Use ALL data, not just last 60 days
+        # Original: window = min(60, len(y) - 1)  ← caused identical forecasts
+        window = len(y) - 1
         if window < 20:
             return self._naive_forecast(y, feature_names)
         
@@ -91,14 +91,13 @@ class BSTSPredictor:
         }
     
     def _compute_importance(self, coefficients, feature_names):
-        """Convert raw coefficients to absolute importance scores (sorted)."""
         if coefficients is None or len(coefficients) != len(feature_names):
             return []
         imp = np.abs(coefficients)
         sorted_idx = np.argsort(imp)[::-1]
         result = []
         for i in sorted_idx:
-            if imp[i] > 1e-8:  # ignore near-zero
+            if imp[i] > 1e-8:
                 result.append({
                     'feature': feature_names[i],
                     'coefficient': float(coefficients[i]),
@@ -114,5 +113,5 @@ class BSTSPredictor:
             'forecast_mean': mean,
             'forecast_lower': mean - 1.96 * std,
             'forecast_upper': mean + 1.96 * std,
-            'macro_importance': []  # empty list, not None
+            'macro_importance': []
         }
