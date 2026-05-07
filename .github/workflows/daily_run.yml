@@ -2,7 +2,7 @@ name: Daily BSTS Trend Run
 
 on:
   schedule:
-    - cron: '0 10 * * 1-5'   # 10 AM UTC, Mon-Fri
+    - cron: '0 02 * * 1-5'   # 02 AM UTC, Mon-Fri
   workflow_dispatch:
 
 jobs:
